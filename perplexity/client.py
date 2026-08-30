@@ -16,6 +16,7 @@ from .config import (
     ENDPOINT_UPLOAD_URL,
     MODEL_MAPPINGS,
     SIGNIN_URL_PATTERN,
+    SSE_ASK_HEADERS,
 )
 from .emailnator import Emailnator
 from .exceptions import (
@@ -278,8 +279,11 @@ class Client:
             },
         }
 
-        # Send the query request and handle the response
-        resp = self.session.post(ENDPOINT_SSE_ASK, json=json_data, stream=True)
+        # Send the query request and handle the response.
+        # Use SSE_ASK_HEADERS so the POST looks like a browser fetch() call
+        # (cors mode, empty dest, content-type: application/json) rather than a
+        # page navigation, which is what Perplexity's anti-bot layer checks.
+        resp = self.session.post(ENDPOINT_SSE_ASK, json=json_data, stream=True, headers=SSE_ASK_HEADERS)
 
         if resp.status_code == 429:
             raise RateLimitError("Perplexity rate limit reached. Please wait before retrying.")

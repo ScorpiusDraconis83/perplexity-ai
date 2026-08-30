@@ -1,11 +1,12 @@
 """Tests for Client and AsyncClient classes."""
 
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
 from perplexity.client import Client
+from perplexity.config import SSE_ASK_HEADERS
 from perplexity.exceptions import (
     AuthenticationError,
     FileUploadError,
@@ -101,3 +102,37 @@ def test_client_search_http_errors() -> None:
         mock_post.return_value = mock_500
         with pytest.raises(NetworkError):
             cli.search("test")
+
+
+def test_client_search_uses_sse_headers() -> None:
+    """search() must pass SSE_ASK_HEADERS to the perplexity_ask POST so the
+    request looks like a browser fetch() call rather than a page navigation,
+    which is the primary cause of Perplexity blocking the request (issue #70)."""
+    with patch("curl_cffi.requests.Session.get") as mock_get, patch(
+        "curl_cffi.requests.Session.post"
+    ) as mock_post:
+        mock_get.return_value = MagicMock(ok=True)
+
+        final_data = json.dumps({"answer": "test", "chunks": []})
+        nested_text = json.dumps([{"step_type": "FINAL", "content": {"answer": final_data}}])
+        mock_response_data = {
+            "text": nested_text,
+            "blocks": [{"intended_usage": "ask_text", "markdown_block": {"answer": "test"}}],
+        }
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.iter_lines.return_value = [
+            f"data: {json.dumps(mock_response_data)}".encode("utf-8"),
+            b"event: end_of_stream",
+        ]
+        mock_post.return_value = mock_resp
+
+        cli = Client()
+        cli.search("hello")
+
+        # The last POST call (to ENDPOINT_SSE_ASK) must carry SSE_ASK_HEADERS.
+        sse_call_kwargs = mock_post.call_args_list[-1][1]
+        assert sse_call_kwargs.get("headers") == SSE_ASK_HEADERS, (
+            "search() did not pass SSE_ASK_HEADERS to the perplexity_ask POST; "
+            "stale sec-fetch-mode/dest values will be rejected by Perplexity's anti-bot layer"
+        )

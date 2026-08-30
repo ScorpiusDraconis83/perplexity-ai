@@ -16,6 +16,7 @@ from perplexity.config import (
     ENDPOINT_UPLOAD_URL,
     MODEL_MAPPINGS,
     SIGNIN_URL_PATTERN,
+    SSE_ASK_HEADERS,
 )
 from perplexity.exceptions import (
     AccountCreationError,
@@ -278,7 +279,10 @@ class Client(AsyncMixin):
             },
         }
 
-        resp = await self.session.post(ENDPOINT_SSE_ASK, json=json_data, stream=True)
+        # Use SSE_ASK_HEADERS so the POST looks like a browser fetch() call
+        # (cors mode, empty dest, content-type: application/json) rather than a
+        # page navigation, which is what Perplexity's anti-bot layer checks.
+        resp = await self.session.post(ENDPOINT_SSE_ASK, json=json_data, stream=True, headers=SSE_ASK_HEADERS)
 
         if resp.status_code == 429:
             raise RateLimitError("Perplexity rate limit reached. Please wait before retrying.")
