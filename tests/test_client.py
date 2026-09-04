@@ -1,7 +1,7 @@
 """Tests for Client and AsyncClient classes."""
 
 import json
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -15,6 +15,40 @@ from perplexity.exceptions import (
     ValidationError,
 )
 from perplexity_async.client import Client as AsyncClient
+
+
+def make_sse_frames(answer: str = "OK") -> tuple[dict, list[bytes]]:
+    """Build frames matching Perplexity's current combined end event."""
+    message = {
+        "blocks": [
+            {
+                "intended_usage": "ask_text",
+                "markdown_block": {"answer": answer},
+            }
+        ]
+    }
+    frames = [
+        f"event: message\r\ndata: {json.dumps(message)}".encode("utf-8"),
+        b"event: end_of_stream\r\ndata: {}",
+    ]
+    return message, frames
+
+
+def make_sync_response(frames: list[bytes]) -> MagicMock:
+    response = MagicMock(status_code=200)
+    response.iter_lines.return_value = frames
+    return response
+
+
+def make_async_response(frames: list[bytes]) -> MagicMock:
+    response = MagicMock(status_code=200)
+
+    async def aiter_lines(*args, **kwargs):
+        for frame in frames:
+            yield frame
+
+    response.aiter_lines = aiter_lines
+    return response
 
 
 def test_client_init_defaults() -> None:
@@ -75,6 +109,40 @@ def test_client_search_success_mock() -> None:
         result = cli.search("What is Python?", mode="auto")
         assert isinstance(result, dict)
         assert result.get("answer") == "Python is a language"
+
+
+def test_client_handles_combined_end_of_stream_frame() -> None:
+    with patch("curl_cffi.requests.Session.get", return_value=MagicMock(ok=True)), patch(
+        "curl_cffi.requests.Session.post"
+    ) as mock_post:
+        expected, frames = make_sse_frames()
+        mock_post.return_value = make_sync_response(frames)
+
+        cli = Client()
+        result = cli.search("test")
+        streamed = list(cli.search("test", stream=True))
+
+        assert result == expected
+        assert streamed == [expected]
+
+
+@pytest.mark.asyncio
+async def test_async_client_handles_combined_end_of_stream_frame() -> None:
+    expected, frames = make_sse_frames()
+
+    with patch("perplexity_async.client.requests.AsyncSession") as session_cls:
+        session = MagicMock()
+        session.get = AsyncMock(return_value=MagicMock(ok=True))
+        session.post = AsyncMock(return_value=make_async_response(frames))
+        session_cls.return_value = session
+
+        cli = await AsyncClient()
+        result = await cli.search("test")
+        assert result == expected
+
+        stream = await cli.search("test", stream=True)
+        streamed = [chunk async for chunk in stream]
+        assert streamed == [expected]
 
 
 def test_client_search_http_errors() -> None:
