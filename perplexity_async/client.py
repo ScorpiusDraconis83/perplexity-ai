@@ -297,7 +297,7 @@ class Client(AsyncMixin):
             async for chunk in resp_obj.aiter_lines(delimiter=b"\r\n\r\n"):
                 content = chunk.decode("utf-8") if isinstance(chunk, bytes) else str(chunk)
 
-                if "data: " in content:
+                if "data: " in content and not content.startswith("event: end_of_stream"):
                     try:
                         data_str = content.split("data: ", 1)[1]
                         content_json = json.loads(data_str)
@@ -307,7 +307,7 @@ class Client(AsyncMixin):
                     except (json.JSONDecodeError, KeyError, IndexError):
                         continue
 
-                elif "event: end_of_stream" in content:
+                elif content.startswith("event: end_of_stream"):
                     return
 
         if stream:
@@ -316,7 +316,7 @@ class Client(AsyncMixin):
         async for chunk in resp.aiter_lines(delimiter=b"\r\n\r\n"):
             content = chunk.decode("utf-8") if isinstance(chunk, bytes) else str(chunk)
 
-            if "data: " in content:
+            if "data: " in content and not content.startswith("event: end_of_stream"):
                 try:
                     data_str = content.split("data: ", 1)[1]
                     content_json = json.loads(data_str)
@@ -325,7 +325,7 @@ class Client(AsyncMixin):
                 except (json.JSONDecodeError, KeyError, IndexError):
                     continue
 
-            elif "event: end_of_stream" in content:
+            elif content.startswith("event: end_of_stream"):
                 return chunks[-1] if chunks else {}
 
         return chunks[-1] if chunks else {}
