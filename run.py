@@ -7,4 +7,6 @@ client = perplexity.Client()
 response = client.search("Explain quantum computing", mode="auto")
 
 # Mostrar resposta
-print("Resposta:", response["answer"])
+answer = response["blocks"][0]["markdown_block"]["answer"]
+print("Resposta:", answer)
+# print(answer)
